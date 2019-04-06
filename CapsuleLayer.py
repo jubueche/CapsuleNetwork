@@ -58,13 +58,44 @@ class CapsuleLayer:
             if(self.isPrimary):
                 print('Is primary')
 
+                res = tf.expand_dims(self.convs[0](input), axis=1)
+                for conv in self.convs[1:]:
+                    tmp = tf.expand_dims(conv(input), axis=1)
+                    res = tf.concat([res, tmp], axis=1)
+
+                # MNIST: Shape is now [batch_size, 32, 6, 6, 8]
+                # No need to reshape. Squas takes care of that.
+                return squash(res)
+
             else:
                 raise ValueError("Convolutional non-primary capsule not implemented yet.")
 
         elif(self.c_type == "FC"):
             print('Fully connected')
+            
+            # Obtain u_hat using the weights matrices
+            # Do a linear combination of the capsules using the coupling coefs.
+            # At the beginning, each beta's of each layers are 0.
+
+            # Squash, linear combination, 
 
         else:
             raise ValueError("Type %s is not supported." % self.c_type)
         
 
+# TODO Check correctnes
+def squash(input):
+    # v_j = ||s_j||²/(1+||s_j||²)*s_j/||s_j||
+
+    # Check if we have more than 3 dimensions:
+    old_shape = input.get_shape()
+
+    if(tf.size(input) > 3):
+        input = tf.reshape(input, shape=[input.get_shape()[0], -1, input.get_shape()[-1]])
+
+    l2_squared = tf.reduce_sum(tf.pow(input,2), axis=2) # [batch_size, 1152, 8] -> [batch_size, 1152]
+    res = tf.multiply(tf.divide(l2_squared, tf.multiply(1+l2_squared, tf.sqrt(l2_squared))),input)
+
+    return tf.reshape(res, shape=old_shape)
+
+    

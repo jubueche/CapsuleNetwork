@@ -86,8 +86,8 @@ capsnet = CapsNet(BATCH_SIZE, mnist_capsule_struct, mnist_conv2d_struct, mnist_f
 
 @tf.function
 def train_step(image, label):
-  #with tf.GradientTape() as tape:
-  out = capsnet(image)
+  with tf.GradientTape() as tape:
+    out = capsnet(image)
 
 
 
