@@ -29,7 +29,7 @@ class CapsuleLayer:
     In total the output dimension should be
     [batch_size, 32 x 6 x 6, 8]"""
 
-    def __init__(self, num_capsules, vec_length, kernel_size, name, c_type, num_per_capsule, prev_vec_length, isPrimary = False):
+    def __init__(self, num_capsules, vec_length, kernel_size, name, c_type, num_per_capsule, prev_vec_length, r_iter, isPrimary = False):
 
         # Store the information in fields
         self.num_capsules = num_capsules
@@ -40,6 +40,7 @@ class CapsuleLayer:
         self.prev_vec_length = prev_vec_length
         self.isPrimary = isPrimary
         self.c_type = c_type
+        self.r_iter = r_iter
 
         
         self.convs = []
@@ -70,7 +71,6 @@ class CapsuleLayer:
 
         if(self.c_type == "CONV"):
             if(self.isPrimary):
-                print('Is primary')
 
                 res = tf.expand_dims(self.convs[0](input), axis=1)
                 for conv in self.convs[1:]:
@@ -85,27 +85,63 @@ class CapsuleLayer:
                 raise ValueError("Convolutional non-primary capsule not implemented yet.")
 
         elif(self.c_type == "FC"):
-            print('Fully connected')
             
             # Obtain u{hat} using Weight matrix
             # Do the routing and update b{i,j} and c{i,j} using u{hat}
             s = input.get_shape()
             input = tf.reshape(input, shape=[s[0],-1,s[-1]])
 
-            print(self.W.get_shape())
             W = tf.tile(self.W, [s[0],1,1,1,1]) # [64,10,1152,8,16]
             # Now need to transform input shape [batch_size,1152,8] to [b_s,10,1152,8,1]
             input = tf.expand_dims(input, axis=1)
             input = tf.expand_dims(input, axis=4)
             input = tf.tile(input, [1,W.get_shape()[1],1,1,1])
-            x = tf.squeeze(tf.matmul(W,input, transpose_a=True))
-            print(x)
-
+            u_hat = tf.matmul(W,input, transpose_a=True)[:,:,:,:,0]
+            
+            
             # Now do the routing
-
+            ret = self.routing(u_hat)
+            ret = tf.squeeze(ret)
+            return ret
         else:
             raise ValueError("Type %s is not supported." % self.c_type)
         
+    
+    def routing(self, u_hat):
+
+        #print(v.get_shape()) (64, 10, 1152, 8)
+        #print(u_hat.get_shape()) (64, 10, 1152, 16)
+
+        u_hat_no_gradient = tf.stop_gradient(u_hat)
+        B = tf.constant(0, shape=u_hat.get_shape()[:-1], dtype=tf.float32)
+
+
+        for i in range(self.r_iter):
+            # C : [batch_size,10,1152]
+            # u_hat: [batch_size,10,1152,16]
+            
+            # Get C
+            # C : [batch_size,10,1152] -> [batch_size,10,1152,16] 
+            C = tf.tile(tf.expand_dims(tf.nn.softmax(B, axis=2), axis=3),[1,1,1,u_hat.get_shape()[-1]])
+
+            if(i == self.r_iter-1):
+                # Need to use the real u_hat
+                s_j = tf.reduce_sum(tf.multiply(C,u_hat),axis=2,keepdims=True)
+                v_j = squash(s_j)            
+
+            else:
+                # s_j: [batch_size,10,16], b_s,num_channels,capsule_length
+                s_j = tf.reduce_sum(tf.multiply(C,u_hat_no_gradient),axis=2,keepdims=True)
+                
+                v_j = squash(s_j)
+                #print(v_j)
+                v_j_tiled = tf.expand_dims(tf.tile(v_j,[1,1,u_hat.get_shape()[2],1]), axis=4)
+                agreement = tf.matmul(tf.expand_dims(u_hat_no_gradient, axis=4), v_j_tiled, transpose_a=True)[:,:,:,0,0]
+                B += agreement
+        
+        return v_j
+
+
 
 # TODO Check correctnes
 def squash(input):

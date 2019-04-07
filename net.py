@@ -12,6 +12,7 @@ import CapsuleLayer
 BATCH_SIZE = 64
 EPOCHS = 1
 IMAGE_DIM = 28
+R_ITER = 3
 
 dataset, info = tfds.load('mnist', with_info=True, as_supervised=True)
 mnist_train, mnist_test = dataset['train'], dataset['test']
@@ -97,16 +98,12 @@ class CapsNet:
 
       else:
         num_per_capsule = self.capsule_layers[i-1].num_per_capsule # e.g. 1152 for DigiCaps layer
-      print(prev_vec_length)              
 
       self.capsule_layers.append(CapsuleLayer.CapsuleLayer(num_c, vec_length, kernel_size,
-                                            name, c_type, num_per_capsule, prev_vec_length, isPrimary))
+                                            name, c_type, num_per_capsule, prev_vec_length, R_ITER, isPrimary))
 
       prev_vec_length = vec_length
-
-    # Masking Layer. Assert output shaoe: [batch_size, 16] ([batch_size, 1, 16])
-     
-
+    
 
     # Decoding layer. Assert output shape: [batch_size, 784] 
   
@@ -122,6 +119,11 @@ class CapsNet:
 
     for capsLayer in self.capsule_layers[1:]:
       caps_out = capsLayer(caps_out)
+      
+
+    # caps_out [batch_size,10,16]
+
+    
 
 
 capsnet = CapsNet(BATCH_SIZE, mnist_capsule_struct, mnist_conv2d_struct, mnist_fc_struct)
@@ -132,8 +134,6 @@ def train_step(image, label):
     out = capsnet(image)
     #out = pg()
   
-
-
 
 # Note: Image will have tensor dimension [batch_size, 28, 28, 1]
 #       Label will have dimension [batch_size]
