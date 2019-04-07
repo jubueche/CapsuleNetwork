@@ -11,6 +11,7 @@ import CapsuleLayer
 #%%
 BATCH_SIZE = 64
 EPOCHS = 1
+IMAGE_DIM = 28
 
 dataset, info = tfds.load('mnist', with_info=True, as_supervised=True)
 mnist_train, mnist_test = dataset['train'], dataset['test']
@@ -28,7 +29,33 @@ importlib.reload(CapsuleLayer)
 #importlib.reload(MaskingLayer)
 #importlib.reload(DecodingLayer)
 
-mnist_capsule_struct = [(32, 8, 9), (16, 10)]
+"""
+CapsNet class.
+  This is the class that defines the structure of the Capsule network.
+
+  Arguments:
+    batch_size: Batch size.
+    capsule_struct: The capsule struct is a list of triples or tuples. If the element
+                    is a triple, then it is a convolutional capsule with
+                    number of filters in the first, vector length in the second and
+                    kernel size in the last dimension.
+                    If it is a tuple, then we have a fully connected capsule.
+                    The tuple specifies the number of capsules and the vector length
+                    of the capsule in the respective order.
+    con2d_struct:   This is the structure of the initial convolution.
+                    It is only one triple, since we have only one initial convolution.
+                    One can expand this network to support multiple initial convolutions
+                    easily. The shape is (num_filters, kernel_size, stride)
+    fc_struct:      The fully connected struct is a list of tuples comprising
+                    [shape, activation], where shape is a scalar and activation a string.
+                    For example 'sigmoid' or 'relu'.
+                    Attention: The last layer should have the correct shape regarding the
+                    input shape. For MNIST, the input is 28x28 so the last shape should
+                    be 784, since this layer is the reconstructed digit. 
+     
+"""
+
+mnist_capsule_struct = [(32, 8, 9), (10, 16)]
 mnist_conv2d_struct =  (256, 9, 1, "relu")
 mnist_fc_struct = [(512, "relu"),(1024, "relu")]
 
@@ -47,6 +74,9 @@ class CapsNet:
 
     # Capsule Layers
     self.capsule_layers = []
+
+    h_prev = np.floor((IMAGE_DIM - self.conv2d_struct[1])/self.conv2d_struct[2] + 1)
+
     for i in range(self.n_capsules):
       t = capsule_struct[i]
       name = "caps" + str(i)
@@ -55,10 +85,24 @@ class CapsNet:
       vec_length = t[1]
       num_c = t[0]
       isPrimary = (i==0)
+      
+      if(c_type == "CONV"):
+        if(isPrimary == True):
+          prev_vec_length = vec_length
+        # Need to compute H/W using IMAGE_DIM and kernel size of conv1
+        # This is 20 for MNIST where first conv. is 9x9
+        h = np.floor((h_prev-kernel_size)/2+1) # From https://pytorch.org/docs/stable/nn.html
+        h_prev = h
+        num_per_capsule = int(h**2 * num_c) # e.g. 1152 for MNIST PrimaryCaps layer
+
+      else:
+        num_per_capsule = self.capsule_layers[i-1].num_per_capsule # e.g. 1152 for DigiCaps layer
+      print(prev_vec_length)              
 
       self.capsule_layers.append(CapsuleLayer.CapsuleLayer(num_c, vec_length, kernel_size,
-                                            name, c_type, isPrimary))
+                                            name, c_type, num_per_capsule, prev_vec_length, isPrimary))
 
+      prev_vec_length = vec_length
 
     # Masking Layer. Assert output shaoe: [batch_size, 16] ([batch_size, 1, 16])
      
@@ -80,14 +124,14 @@ class CapsNet:
       caps_out = capsLayer(caps_out)
 
 
-    
-
 capsnet = CapsNet(BATCH_SIZE, mnist_capsule_struct, mnist_conv2d_struct, mnist_fc_struct)
 
 @tf.function
 def train_step(image, label):
   with tf.GradientTape() as tape:
     out = capsnet(image)
+    #out = pg()
+  
 
 
 
@@ -103,5 +147,3 @@ for _ in range(EPOCHS):
 
 #%%
 
-
-#%%

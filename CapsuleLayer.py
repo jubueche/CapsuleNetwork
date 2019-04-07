@@ -29,13 +29,15 @@ class CapsuleLayer:
     In total the output dimension should be
     [batch_size, 32 x 6 x 6, 8]"""
 
-    def __init__(self, num_capsules, vec_length, kernel_size, name, c_type, isPrimary = False):
+    def __init__(self, num_capsules, vec_length, kernel_size, name, c_type, num_per_capsule, prev_vec_length, isPrimary = False):
 
         # Store the information in fields
         self.num_capsules = num_capsules
         self.vec_length = vec_length
         self.kernel_size = kernel_size
         self.name = name
+        self.num_per_capsule = num_per_capsule
+        self.prev_vec_length = prev_vec_length
         self.isPrimary = isPrimary
         self.c_type = c_type
 
@@ -44,6 +46,18 @@ class CapsuleLayer:
         for _ in range(self.num_capsules):
             conv = tf.keras.layers.Conv2D(filters=self.vec_length, kernel_size=self.kernel_size,strides=(2,2),activation='relu')
             self.convs.append(conv)
+
+
+        if(self.isPrimary == False):
+            # Create weight matrix with dimensions: (1,10,1152,8,16)
+            # The one in front is needed for tiling (replicating) for batch_size axis
+            # Input shape must be (batch_size,10,1152,8,1)
+            # General shape is (1,num_capsules, num_per_capsule, prev_vec_length, vec_length)
+            # We will get batch size in __call__ and then be able to tile the first dimension.
+
+            self.W = tf.Variable(tf.random.normal(shape=[1,self.num_capsules,self.num_per_capsule,
+                                        self.prev_vec_length, self.vec_length]), dtype=tf.float32)
+            
 
     # TODO Make stride variable
     def __call__(self, input):
@@ -73,11 +87,21 @@ class CapsuleLayer:
         elif(self.c_type == "FC"):
             print('Fully connected')
             
-            # Obtain u_hat using the weights matrices
-            # Do a linear combination of the capsules using the coupling coefs.
-            # At the beginning, each beta's of each layers are 0.
+            # Obtain u{hat} using Weight matrix
+            # Do the routing and update b{i,j} and c{i,j} using u{hat}
+            s = input.get_shape()
+            input = tf.reshape(input, shape=[s[0],-1,s[-1]])
 
-            # Squash, linear combination, 
+            print(self.W.get_shape())
+            W = tf.tile(self.W, [s[0],1,1,1,1]) # [64,10,1152,8,16]
+            # Now need to transform input shape [batch_size,1152,8] to [b_s,10,1152,8,1]
+            input = tf.expand_dims(input, axis=1)
+            input = tf.expand_dims(input, axis=4)
+            input = tf.tile(input, [1,W.get_shape()[1],1,1,1])
+            x = tf.squeeze(tf.matmul(W,input, transpose_a=True))
+            print(x)
+
+            # Now do the routing
 
         else:
             raise ValueError("Type %s is not supported." % self.c_type)
